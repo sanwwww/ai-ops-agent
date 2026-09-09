@@ -6,18 +6,23 @@ FastAPI 后端入口：Agent 的"门面"。
 1. 限流：每个 IP 每分钟最多 10 次请求，防止 API Key 被恶意刷爆
 2. 消息长度限制：最长 500 字符，防止超长输入浪费 Token
 3. PORT 环境变量：适配云平台（Render/Railway 等会动态分配端口）
+
+两个接口：
+- POST /api/chat        非流式（保留兼容）
+- POST /api/chat/stream SSE 流式：Agent 每一步实时推给前端（主要接口）
 """
 import os
+import json
 import time
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from agent import run_agent
+from agent import run_agent, run_agent_stream
 
-load_dotenv()  # 本地运行时读取 .env 里的 API Key；线上用平台环境变量
+load_dotenv()  # 本地运行时读取 .env；线上用平台环境变量
 
 app = FastAPI(title="AI Ops Agent")
 
@@ -43,14 +48,41 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 def chat(req: ChatRequest, request: Request):
-    """前端聊天接口：POST {"message": "..."} -> Agent 分析 -> {"answer", "steps"}"""
+    """非流式聊天接口：POST {"message": "..."} -> Agent 分析 -> {"answer", "steps"}"""
     _check_rate_limit(request.client.host)
     if len(req.message) > MAX_MESSAGE_LEN:
-        raise HTTPException(status_code=400, detail=f"消息过长，最多 {MAX_MESSAGE_LEN} 字符")
+        raise HTTPException(status_code=400, detail=f"消息过长，最大 {MAX_MESSAGE_LEN} 字符")
     try:
         return run_agent(req.message)
     except Exception as e:
         return {"answer": f"服务出错: {e}", "steps": []}
+
+
+@app.post("/api/chat/stream")
+def chat_stream(req: ChatRequest, request: Request):
+    """SSE 流式聊天接口：Agent 循环的每个事件实时推给前端。
+
+    SSE（Server-Sent Events）格式：每个事件为
+        event: 事件名\\n
+        data: JSON\\n\\n
+    比 WebSocket 简单：单向推送够用，且浏览器 fetch 原生支持。
+    """
+    _check_rate_limit(request.client.host)
+    if len(req.message) > MAX_MESSAGE_LEN:
+        raise HTTPException(status_code=400, detail=f"消息过长，最大 {MAX_MESSAGE_LEN} 字符")
+
+    def event_gen():
+        try:
+            for event, data in run_agent_stream(req.message):
+                yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'answer': f'服务出错: {e}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/health")
