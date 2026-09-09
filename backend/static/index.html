@@ -2,68 +2,132 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI 智能运维助手 Ops Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
 <style>
-  body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; margin: 0; display: flex; justify-content: center; }
-  .chat-box { width: 720px; height: 100vh; background: #fff; display: flex; flex-direction: column; box-shadow: 0 0 12px rgba(0,0,0,.08); }
-  header { padding: 14px 20px; background: #1f6feb; color: #fff; font-size: 17px; font-weight: bold; }
-  #messages { flex: 1; overflow-y: auto; padding: 16px; }
-  .msg { margin: 10px 0; padding: 10px 14px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; line-height: 1.6; }
-  .user { background: #1f6feb; color: #fff; margin-left: auto; }
-  .bot { background: #f1f3f5; }
-  .steps { font-size: 12px; color: #666; background: #fafafa; border-left: 3px solid #1f6feb; padding: 6px 10px; margin-top: 6px; border-radius: 4px; }
-  .input-row { display: flex; padding: 12px; border-top: 1px solid #eee; }
-  input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
-  button { margin-left: 8px; padding: 10px 22px; background: #1f6feb; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
-  button:disabled { background: #999; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: "Microsoft YaHei", -apple-system, sans-serif; background: #eef1f6; height: 100vh; display: flex; justify-content: center; }
+  .app { width: 100%; max-width: 780px; height: 100vh; background: #fff; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,.06); }
+  header { padding: 14px 20px; background: linear-gradient(135deg, #1f6feb, #0d4fa8); color: #fff; display: flex; align-items: center; gap: 10px; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header span { font-size: 12px; opacity: .85; margin-left: auto; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg { margin: 12px 0; max-width: 88%; }
+  .msg .bubble { padding: 12px 16px; border-radius: 12px; line-height: 1.7; font-size: 14.5px; word-break: break-word; }
+  .user { margin-left: auto; }
+  .user .bubble { background: #1f6feb; color: #fff; border-bottom-right-radius: 4px; }
+  .bot .bubble { background: #f3f5f9; border-bottom-left-radius: 4px; }
+  .bot .bubble p { margin: 6px 0; }
+  .bot .bubble pre { background: #0d1117; color: #e6edf3; padding: 10px 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 8px 0; }
+  .bot .bubble code { font-family: Consolas, monospace; font-size: 13px; }
+  .bot .bubble table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  .bot .bubble th, .bot .bubble td { border: 1px solid #d8dee9; padding: 5px 10px; }
+  .bot .bubble th { background: #eef2f8; }
+  .bot .bubble h3 { margin: 10px 0 4px; font-size: 15px; }
+  .steps { margin-top: 8px; }
+  .steps details { background: #fbfcfe; border: 1px solid #e3e8f0; border-radius: 8px; }
+  .steps summary { cursor: pointer; padding: 8px 12px; font-size: 13px; color: #1f6feb; font-weight: 600; }
+  .step-item { padding: 8px 14px; border-top: 1px solid #eef1f6; font-size: 12.5px; }
+  .step-item b { color: #854f0b; font-family: Consolas, monospace; }
+  .step-item .args { color: #666; font-family: Consolas, monospace; }
+  .step-item .result { margin-top: 4px; color: #0f6e56; font-family: Consolas, monospace; white-space: pre-wrap; }
+  .typing { display: inline-flex; gap: 5px; padding: 6px 0; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: #9db3d0; animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; }
+  .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 8px; }
+  .chips button { padding: 7px 14px; background: #fff; border: 1px solid #c9d6ea; border-radius: 18px; font-size: 13px; color: #1f6feb; cursor: pointer; }
+  .chips button:hover { background: #eef4ff; }
+  .input-row { display: flex; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid #eef1f6; background: #fff; }
+  input { flex: 1; padding: 12px 16px; border: 1.5px solid #d8dee9; border-radius: 10px; font-size: 14px; outline: none; }
+  input:focus { border-color: #1f6feb; }
+  button.send { padding: 12px 26px; background: #1f6feb; color: #fff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; }
+  button.send:disabled { background: #a9c3ec; }
+  footer { text-align: center; font-size: 11px; color: #9aa5b5; padding: 0 0 8px; }
 </style>
 </head>
 <body>
-<div class="chat-box">
-  <header>AI 智能运维助手 Ops Agent</header>
+<div class="app">
+  <header>
+    <div class="dot"></div>
+    <h1>AI 智能运维助手</h1>
+    <span>Ops Agent · LLM + Tool Calling</span>
+  </header>
   <div id="messages"></div>
-  <div class="input-row">
-    <input id="input" placeholder="例如：网站打不开了，帮我排查一下 baidu.com" onkeydown="if(event.key==='Enter')send()">
-    <button id="btn" onclick="send()">发送</button>
+  <div class="chips" id="chips">
+    <button onclick="fill(this)">网站打不开了，帮我排查 example.com</button>
+    <button onclick="fill(this)">baidu.com 的 443 端口通吗</button>
+    <button onclick="fill(this)">检查 https://www.baidu.com 是否正常</button>
   </div>
+  <div class="input-row">
+    <input id="input" maxlength="500" placeholder="描述你的运维问题，回车发送…" onkeydown="if(event.key==='Enter')send()">
+    <button class="send" id="btn" onclick="send()">发送</button>
+  </div>
+  <footer>Powered by DeepSeek · FastAPI · Tool Calling</footer>
 </div>
 <script>
 const box = document.getElementById("messages");
-function addMsg(text, cls) {
+const input = document.getElementById("input");
+const btn = document.getElementById("btn");
+const chips = document.getElementById("chips");
+
+function scroll() { box.scrollTop = box.scrollHeight; }
+function md(text) { return DOMPurify.sanitize(marked.parse(text)); }
+
+function addUser(text) {
   const d = document.createElement("div");
-  d.className = "msg " + cls;
-  d.textContent = text;
-  box.appendChild(d);
-  box.scrollTop = box.scrollHeight;
+  d.className = "msg user";
+  d.innerHTML = `<div class="bubble"></div>`;
+  d.querySelector(".bubble").textContent = text;
+  box.appendChild(d); scroll();
+}
+function addBot() {
+  const d = document.createElement("div");
+  d.className = "msg bot";
+  d.innerHTML = `<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  box.appendChild(d); scroll();
   return d;
 }
+function renderBot(el, data) {
+  let html = md(data.answer);
+  if (data.steps && data.steps.length) {
+    const items = data.steps.map((s, i) =>
+      `<div class="step-item"><b>Step ${i + 1} · ${s.tool}</b> <span class="args">${JSON.stringify(s.args)}</span><div class="result">→ ${s.result}</div></div>`).join("");
+    html += `<div class="steps"><details open><summary>Agent 排查过程（${data.steps.length} 步）</summary>${items}</details></div>`;
+  }
+  el.querySelector(".bubble").innerHTML = html;
+  scroll();
+}
+function fill(b) { input.value = b.textContent; input.focus(); }
+
 async function send() {
-  const input = document.getElementById("input");
-  const btn = document.getElementById("btn");
   const q = input.value.trim();
-  if (!q) return;
-  addMsg(q, "user");
-  input.value = "";
+  if (!q || btn.disabled) return;
+  addUser(q);
+  input.value = ""; chips.style.display = "none";
   btn.disabled = true;
-  const botMsg = addMsg("正在分析…", "bot");
+  const el = addBot();
   try {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: q }),
     });
-    const data = await resp.json();
-    // 展示 Agent 每一步调用的工具（这是面试演示的亮点：能看到"思考过程"）
-    let stepText = "";
-    if (data.steps && data.steps.length) {
-      stepText = "\n[Agent 排查过程]\n" + data.steps.map((s, i) =>
-        `${i + 1}. 调用 ${s.tool}(${JSON.stringify(s.args)})\n   -> ${s.result}`).join("\n");
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      renderBot(el, { answer: `**请求失败（${resp.status}）**：${err.detail || "请稍后再试"}`, steps: [] });
+    } else {
+      renderBot(el, await resp.json());
     }
-    botMsg.textContent = data.answer + "\n" + stepText;
   } catch (e) {
-    botMsg.textContent = "请求失败: " + e;
+    renderBot(el, { answer: "**网络错误**：" + e, steps: [] });
   }
   btn.disabled = false;
+  input.focus();
 }
 </script>
 </body>
