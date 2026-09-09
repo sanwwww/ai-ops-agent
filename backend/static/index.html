@@ -74,7 +74,8 @@
   .boot-log div { animation: bootIn .3s ease-out; }
 
   /* ---------- 侧栏 ---------- */
-  .sidebar { width: 250px; min-width: 250px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+  .sidebar { width: 250px; min-width: 250px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; transition: margin-left .25s; }
+  .app.side-hidden .sidebar { margin-left: -250px; }
   .logo { position: relative; padding: 20px 16px; border-bottom: 1px solid var(--border); }
   .logo::before, .logo::after { content: ""; position: absolute; width: 14px; height: 14px; }
   .logo::before { top: 8px; left: 8px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
@@ -112,6 +113,8 @@
   .topbar::after { content: ""; position: absolute; bottom: 0; left: 0; height: 1.5px; width: 30%; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: scan 4s linear infinite; }
   @keyframes scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(450%); } }
   .topbar .burger { display: none; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
+  .topbar .side-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+  .topbar .side-btn:hover { color: var(--accent); border-color: var(--accent); }
   .topbar b { letter-spacing: 1px; }
   .topbar .model { font-family: var(--mono); color: var(--muted); font-size: 11px; letter-spacing: 1px; }
   .topbar .timer { margin-left: auto; font-family: var(--mono); color: var(--warn); font-size: 12px; }
@@ -141,9 +144,24 @@
   .copy-btn:hover { color: #22d3ee; border-color: #22d3ee; }
   .stream-text { white-space: pre-wrap; }
 
+  .step-zone { position: relative; }
+  .steps-toggle {
+    font-family: var(--mono); font-size: 12px; color: var(--accent); cursor: pointer;
+    background: var(--step-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; margin: 8px 0 4px; display: inline-block; user-select: none;
+  }
+  .steps-toggle:hover { border-color: var(--accent); box-shadow: var(--glow); }
+  .steps-pop {
+    display: none; position: absolute; left: 0; top: calc(100% + 4px); z-index: 30;
+    min-width: 280px; max-width: 440px; max-height: 260px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .45); padding: 8px;
+  }
+  .steps-pop.open { display: block; animation: popIn .15s ease-out; }
+  @keyframes popIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
   .step-card {
     font-family: var(--mono); background: var(--step-bg); border: 1px solid var(--border);
-    border-left: 2px solid var(--warn); border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-size: 12px;
+    border-left: 2px solid var(--warn); border-radius: 4px; padding: 8px 12px; margin: 6px 0; font-size: 12px;
   }
   .step-card .tool { color: var(--warn); font-weight: bold; }
   .step-card .tool::before { content: "⚙ "; }
@@ -244,6 +262,7 @@
 
   <div class="main">
     <div class="topbar">
+      <button class="side-btn" onclick="document.querySelector('.app').classList.toggle('side-hidden')" title="收起/展开侧栏">◧</button>
       <button class="burger" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
       <b>网络故障智能排查控制台</b>
       <span class="model">LLM · TOOL CALLING · SSE</span>
@@ -326,14 +345,22 @@ function decorateCode(bubble) {
   });
 }
 
+function stepsBarText(n, running) {
+  return running ? `⚙ 正在排查… 已调用 ${n} 次（点击展开）` : `▸ Agent 排查过程（${n} 次工具调用）`;
+}
+function ensureStepUI(zone) {
+  if (!zone.querySelector(".steps-pop")) {
+    zone.innerHTML = `<div class="steps-toggle"></div><div class="steps-pop"></div>`;
+    zone.querySelector(".steps-toggle").onclick = () =>
+      zone.querySelector(".steps-pop").classList.toggle("open");
+  }
+  return { bar: zone.querySelector(".steps-toggle"), pop: zone.querySelector(".steps-pop") };
+}
 function renderSteps(container, steps) {
-  container.innerHTML = "";
-  steps.forEach(s => {
-    const d = document.createElement("div");
-    d.className = "step-card done";
-    d.innerHTML = `<span class="tool">${s.tool}</span> <span class="args">${JSON.stringify(s.args)}</span><div class="result">${s.result}</div>`;
-    container.appendChild(d);
-  });
+  const { bar, pop } = ensureStepUI(container);
+  pop.innerHTML = steps.map(s =>
+    `<div class="step-card done"><span class="tool">${s.tool}</span> <span class="args">${JSON.stringify(s.args)}</span><div class="result">${s.result}</div></div>`).join("");
+  bar.textContent = stepsBarText(steps.length, false);
 }
 
 /* ---------- 统计与历史 ---------- */
@@ -446,7 +473,7 @@ async function send() {
     } else {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
-      let sseBuf = "", answerText = "", steps = [];
+      let sseBuf = "", answerText = "", steps = [], stepCount = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -466,20 +493,28 @@ async function send() {
             answerText += data.text;
             textZone.textContent = answerText; scroll();
           } else if (ev === "tool_start") {
+            const ui = ensureStepUI(stepZone);
             const d = document.createElement("div");
             d.className = "step-card running";
             d.innerHTML = `<span class="tool">${data.tool}</span> <span class="args">${JSON.stringify(data.args)}</span>`;
-            stepZone.appendChild(d); scroll();
+            ui.pop.appendChild(d);
+            stepCount++;
+            ui.bar.textContent = stepsBarText(stepCount, true);
+            scroll();
           } else if (ev === "tool_result") {
             stats.tools++; saveStats();
-            const card = stepZone.lastElementChild;
+            const ui = ensureStepUI(stepZone);
+            const card = ui.pop.lastElementChild;
             if (card) {
               card.classList.remove("running"); card.classList.add("done");
               card.insertAdjacentHTML("beforeend", `<div class="result">${data.result}</div>`);
             }
+            ui.bar.textContent = stepsBarText(stepCount, true);
             steps.push(data); scroll();
           } else if (ev === "done") {
             steps = data.steps || steps;
+            const zbar = stepZone.querySelector(".steps-toggle");
+            if (zbar) zbar.textContent = stepsBarText(steps.length, false);
             if (data.answer) { answerText = data.answer; }
             bubble.querySelector(".typing")?.remove();
             textZone.innerHTML = md(answerText);
