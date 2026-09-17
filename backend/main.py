@@ -7,6 +7,11 @@ FastAPI 后端入口：Agent 的"门面"。
 2. 消息长度限制：最长 500 字符，防止超长输入浪费 Token
 3. PORT 环境变量：适配云平台（Render/Railway 等会动态分配端口）
 
+可观测性（Observability，面试常问"线上出问题你怎么查"）：
+1. 结构化日志：每条请求记录 方法/路径/状态码/耗时，异常带堆栈
+2. 请求追踪 ID：每个请求生成唯一 request_id，写进日志和响应头
+   X-Request-ID，出问题时用户报 ID 就能精确定位整条请求的日志
+
 两个接口：
 - POST /api/chat        非流式（保留兼容）
 - POST /api/chat/stream SSE 流式：Agent 每一步实时推给前端（主要接口）
@@ -14,6 +19,8 @@ FastAPI 后端入口：Agent 的"门面"。
 import os
 import json
 import time
+import uuid
+import logging
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
@@ -24,7 +31,32 @@ from agent import run_agent, run_agent_stream
 
 load_dotenv()  # 本地运行时读取 .env；线上用平台环境变量
 
+# ---------- 日志配置：统一格式，本地控制台输出，Render 上直接看服务日志 ----------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("ops-agent.api")
+
 app = FastAPI(title="AI Ops Agent")
+
+
+@app.middleware("http")
+async def request_tracing(request: Request, call_next):
+    """请求追踪中间件：每个请求分配唯一 ID，记录方法/路径/状态/耗时。
+
+    排查线上问题的标准姿势：前端把响应头里的 X-Request-ID 报给你，
+    你拿 ID 去日志里一搜，这次请求的所有日志就全出来了。
+    """
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    start = time.time()
+    response = await call_next(request)
+    elapsed_ms = round((time.time() - start) * 1000)
+    logger.info("%s %s -> %s (%dms) req_id=%s",
+                request.method, request.url.path, response.status_code,
+                elapsed_ms, request_id)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 MAX_MESSAGE_LEN = 500   # 单条消息最大长度
 RATE_LIMIT = 10         # 每个 IP 每分钟最大请求数
@@ -87,8 +119,15 @@ def chat_stream(req: ChatRequest, request: Request):
 
 @app.get("/health")
 def health():
-    """健康检查接口（运维项目给自己加个 health check，面试加分）"""
-    return {"status": "ok"}
+    """健康检查接口（运维项目给自己加个 health check，面试加分）
+
+    顺带暴露知识库状态，方便确认 RAG 模块是否正常初始化。
+    """
+    from knowledge_base import count as kb_count
+    return {
+        "status": "ok",
+        "kb_chunks": kb_count(),  # -1 表示知识库不可用（降级运行）
+    }
 
 
 @app.get("/")

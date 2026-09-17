@@ -1,4 +1,5 @@
-fastapi
-uvicorn
-openai
-python-dotenv
+fastapi==0.141.1
+uvicorn==0.52.4
+openai==3.10.0
+python-dotenv==1.2.3
+chromadb==1.5.9

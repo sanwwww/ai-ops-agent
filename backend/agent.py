@@ -16,8 +16,11 @@ Agent 能"决定下一步做什么"，区别就在这个循环里。
 import os
 import json
 import time
+import logging
 from openai import OpenAI
 from tools import TOOLS_SCHEMA, TOOL_FUNCTIONS
+
+logger = logging.getLogger("ops-agent.agent")
 
 SYSTEM_PROMPT = """你是一名 IT 运维助手，擅长 Linux 问题分析、网络故障排查和日志分析。
 
@@ -25,8 +28,10 @@ SYSTEM_PROMPT = """你是一名 IT 运维助手，擅长 Linux 问题分析、�
 1. 先判断问题类型（DNS / 网络 / 端口 / HTTP服务 / 系统资源）
 2. 需要实际检测时，调用提供的工具获取真实结果，不要凭空猜测
 3. 按标准排查链路逐层分析：DNS -> 网络连通性 -> 端口 -> HTTP 服务
-4. 最后给出：当前判断 + 可能原因 + 下一步排查命令
-5. 对危险操作（如 rm、格式化、改防火墙）必须提醒风险
+4. 需要排查经验、方法论或原理解释时，调用 search_knowledge 检索知识库，
+   结合检索到的内容作答；知识库内容是参考，结论必须以真实检测结果为准
+5. 最后给出：当前判断 + 可能原因 + 下一步排查命令
+6. 对危险操作（如 rm、格式化、改防火墙）必须提醒风险
 """
 
 MODEL = "deepseek-chat"
@@ -146,6 +151,7 @@ def run_agent_stream(user_message: str, max_turns: int = 6):
                     args = json.loads(a["args"]) if a["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
+                logger.info("Agent 调用工具 %s 参数=%s", name, args)  # 可观测性：工具调用链路入日志
                 yield ("tool_start", {"tool": name, "args": args})
                 func = TOOL_FUNCTIONS.get(name)
                 result = func(**args) if func else f"未知工具: {name}"

@@ -9,6 +9,8 @@ import platform
 import urllib.request
 import urllib.error
 
+from knowledge_base import search as _kb_search
+
 
 def ping_host(host: str) -> str:
     """检测网络连通性：能不能 ping 通目标。"""
@@ -54,6 +56,11 @@ def http_check(url: str) -> str:
         return f"HTTP 请求失败：{e}"
 
 
+def search_knowledge(query: str) -> str:
+    """RAG 检索：从本地运维知识库中按语义查找相关排障经验（只读，无副作用）。"""
+    return _kb_search(query)
+
+
 # ---------- 下面是给 LLM 看的"工具说明书"（Tool Schema） ----------
 # LLM 就是靠读这段 JSON 描述，才知道自己有哪些工具、什么时候该调哪个。
 
@@ -87,6 +94,14 @@ TOOLS_SCHEMA = [
             "url": {"type": "string", "description": "完整 URL，如 https://example.com"},
         }, "required": ["url"]},
     }},
+    {"type": "function", "function": {
+        "name": "search_knowledge",
+        "description": "检索运维知识库（RAG），查找相关故障的排查经验和方法论。"
+                       "在分析检测结果、不确定下一步怎么查、或需要解释故障原理时调用",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "要检索的问题，如 'ping 不通但网站能打开' 或 'HTTP 502 排查'"},
+        }, "required": ["query"]},
+    }},
 ]
 
 # 工具名 -> 真正的 Python 函数，Agent 循环按名字从这里取函数执行
@@ -95,4 +110,5 @@ TOOL_FUNCTIONS = {
     "dns_lookup": dns_lookup,
     "check_port": check_port,
     "http_check": http_check,
+    "search_knowledge": search_knowledge,
 }
