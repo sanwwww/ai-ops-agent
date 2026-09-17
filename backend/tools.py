@@ -13,15 +13,32 @@ from knowledge_base import search as _kb_search
 
 
 def ping_host(host: str) -> str:
-    """检测网络连通性：能不能 ping 通目标。"""
+    """检测网络连通性：能不能 ping 通目标。
+
+    降级设计：部分容器环境（如 Render）没有 ping 命令，
+    自动改用 TCP 探测（443/80）判断连通性——结果含义不变：目标可达/不可达。
+    """
     flag = "-n" if platform.system() == "Windows" else "-c"
     try:
-        r = subprocess.run(
-            ["ping", flag, "2", host],
-            capture_output=True, text=True, timeout=15,
-        )
-        out = (r.stdout or r.stderr).strip()
+        # Windows 中文系统 ping 输出是 GBK 编码，指定编码防止解码崩溃
+        kwargs = {"capture_output": True, "timeout": 15,
+                  "encoding": "gbk" if platform.system() == "Windows" else "utf-8",
+                  "errors": "replace"}
+        r = subprocess.run(["ping", flag, "2", host], **kwargs)
+        out = (r.stdout or r.stderr or "").strip()
         return out[-800:]  # 只取末尾，控制返回长度
+    except FileNotFoundError:
+        # 容器无 ping 命令 -> TCP 探测兜底（ICMP 被禁不影响 TCP 可达性判断）
+        for port in (443, 80):
+            try:
+                with socket.create_connection((host, port), timeout=3):
+                    return (f"当前环境无 ping 命令，已改用 TCP 探测："
+                            f"{host}:{port} 可连接 → 目标网络可达。"
+                            f"注意：ICMP 被禁用时 ping 不通但服务仍正常。")
+            except OSError:
+                continue
+        return (f"当前环境无 ping 命令，TCP 443/80 探测均失败："
+                f"{host} 网络不可达或防火墙拦截。")
     except Exception as e:
         return f"ping 执行失败: {e}"
 
