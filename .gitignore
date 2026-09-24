@@ -3,3 +3,4 @@ __pycache__/
 .env
 chroma_db/
 .pytest_cache/
+ops_memory.db

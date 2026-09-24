@@ -76,18 +76,49 @@ def _check_rate_limit(ip: str):
 
 class ChatRequest(BaseModel):
     message: str  # Pydantic 自动校验请求体格式
+    session_id: str | None = None  # 会话 ID：同一 ID 的多轮对话共享上下文记忆
+
+
+def _resolve_session(req: ChatRequest) -> str:
+    """会话 ID：前端未传则生成一个（响应里会带回，前端记住后续轮复用）。"""
+    return (req.session_id or "").strip()[:64] or uuid.uuid4().hex[:12]
+
+
+def _load_history(session_id: str) -> list:
+    """加载会话历史（多轮记忆）。存储层异常不影响主流程（降级为单轮）。"""
+    try:
+        import memory_store
+        return memory_store.get_history(session_id)
+    except Exception as e:
+        logger.warning("加载会话历史失败（降级为单轮）: %s", e)
+        return []
+
+
+def _save_turn(session_id: str, user_message: str, answer: str):
+    """把本轮问答持久化。失败只记日志，不影响已生成的回答。"""
+    try:
+        import memory_store
+        memory_store.append_message(session_id, "user", user_message)
+        if answer:
+            memory_store.append_message(session_id, "assistant", answer)
+    except Exception as e:
+        logger.warning("保存会话消息失败: %s", e)
 
 
 @app.post("/api/chat")
 def chat(req: ChatRequest, request: Request):
-    """非流式聊天接口：POST {"message": "..."} -> Agent 分析 -> {"answer", "steps"}"""
+    """非流式聊天接口：POST {"message", "session_id"?} -> {"answer", "steps", "session_id"}"""
     _check_rate_limit(request.client.host)
     if len(req.message) > MAX_MESSAGE_LEN:
         raise HTTPException(status_code=400, detail=f"消息过长，最大 {MAX_MESSAGE_LEN} 字符")
+    sid = _resolve_session(req)
     try:
-        return run_agent(req.message)
+        result = run_agent(req.message, history=_load_history(sid))
+        result["session_id"] = sid
+        _save_turn(sid, req.message, result.get("answer", ""))
+        return result
     except Exception as e:
-        return {"answer": f"服务出错: {e}", "steps": []}
+        return {"answer": f"服务出错: {e}", "steps": [], "session_id": sid}
 
 
 @app.post("/api/chat/stream")
@@ -98,14 +129,27 @@ def chat_stream(req: ChatRequest, request: Request):
         event: 事件名\\n
         data: JSON\\n\\n
     比 WebSocket 简单：单向推送够用，且浏览器 fetch 原生支持。
+
+    多轮记忆：请求带 session_id 时加载该会话历史注入上下文，
+    流结束后把本轮问答写回会话存储，done 事件回传 session_id。
     """
     _check_rate_limit(request.client.host)
     if len(req.message) > MAX_MESSAGE_LEN:
         raise HTTPException(status_code=400, detail=f"消息过长，最大 {MAX_MESSAGE_LEN} 字符")
 
+    sid = _resolve_session(req)
+    history = _load_history(sid)
+
     def event_gen():
+        answer_parts = []  # 累积 delta，结束时存库（流式回答不在 done 事件里）
         try:
-            for event, data in run_agent_stream(req.message):
+            for event, data in run_agent_stream(req.message, history=history):
+                if event == "delta":
+                    answer_parts.append(data.get("text", ""))
+                elif event == "done":
+                    answer = "".join(answer_parts) or data.get("answer", "")
+                    _save_turn(sid, req.message, answer)
+                    data = dict(data, session_id=sid)
                 yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'answer': f'服务出错: {e}'}, ensure_ascii=False)}\n\n"
@@ -115,6 +159,16 @@ def chat_stream(req: ChatRequest, request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/history")
+def history(session_id: str, request: Request):
+    """会话消息查询：按 session_id 返回持久化的多轮对话（时间正序）。"""
+    if not session_id:
+        raise HTTPException(status_code=400, detail="缺少 session_id")
+    import memory_store
+    return {"session_id": session_id,
+            "messages": memory_store.get_history(session_id, limit=100)}
 
 
 @app.get("/health")
@@ -127,6 +181,7 @@ def health():
     return {
         "status": "ok",
         "kb_chunks": kb_count(),  # -1 表示知识库不可用（降级运行）
+        "session_memory": "sqlite",  # 会话记忆已启用（P1）
     }
 
 

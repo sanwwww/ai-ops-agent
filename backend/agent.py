@@ -47,21 +47,24 @@ def _get_client():
     return OpenAI(api_key=api_key, base_url=BASE_URL), None
 
 
-def _init_messages(user_message: str) -> list:
-    """LLM 没有记忆，全部上下文靠这个列表传递：system 立规矩 + user 提问题。"""
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
+def _init_messages(user_message: str, history: list | None = None) -> list:
+    """LLM 没有记忆，全部上下文靠这个列表传递：
+    system 立规矩 + 历史对话（多轮记忆）+ user 提问题。"""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages += history
+    messages.append({"role": "user", "content": user_message})
+    return messages
 
 
-def run_agent(user_message: str, max_turns: int = 6) -> dict:
-    """非流式：跑一轮完整的 Agent 循环，返回最终答案 + 每一步工具调用记录。"""
+def run_agent(user_message: str, max_turns: int = 6, history: list | None = None) -> dict:
+    """非流式：跑一轮完整的 Agent 循环，返回最终答案 + 每一步工具调用记录。
+    history 为可选的历史对话（多轮记忆），由调用方从会话存储加载。"""
     client, err = _get_client()
     if err:
         return err
 
-    messages = _init_messages(user_message)
+    messages = _init_messages(user_message, history)
     steps = []  # 记录 Agent 每一步调用了什么工具、结果是什么
 
     for _ in range(max_turns):
@@ -91,7 +94,7 @@ def run_agent(user_message: str, max_turns: int = 6) -> dict:
     return {"answer": "已达最大排查轮数，请根据以上结果继续排查。", "steps": steps}
 
 
-def run_agent_stream(user_message: str, max_turns: int = 6):
+def run_agent_stream(user_message: str, max_turns: int = 6, history: list | None = None):
     """流式版 Agent 循环：每一步实时 yield (事件名, 数据)，由 SSE 推给前端。
 
     与非流式版本的唯一区别：LLM 的回答是逐字接收的（stream=True），
@@ -102,7 +105,7 @@ def run_agent_stream(user_message: str, max_turns: int = 6):
         yield ("error", err)
         return
 
-    messages = _init_messages(user_message)
+    messages = _init_messages(user_message, history)
     steps = []
     start = time.time()
     yield ("status", {"stage": "正在分析问题"})

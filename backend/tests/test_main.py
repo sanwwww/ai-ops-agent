@@ -16,9 +16,11 @@ from fastapi.testclient import TestClient
 client = TestClient(main.app)
 
 
-def _mock_stream(monkeypatch):
-    """把 Agent 层替换成固定事件流的假实现。"""
-    def fake_stream(msg, max_turns=6):
+def _mock_stream(monkeypatch, capture=None):
+    """把 Agent 层替换成固定事件流的假实现；capture 用于捕获调用参数。"""
+    def fake_stream(msg, history=None, max_turns=6):
+        if capture is not None:
+            capture.append({"msg": msg, "history": history})
         yield ("status", {"stage": "正在分析问题"})
         yield ("tool_start", {"tool": "dns_lookup", "args": {"domain": "example.com"}})
         yield ("tool_result", {"tool": "dns_lookup", "args": {"domain": "example.com"}, "result": "ok"})

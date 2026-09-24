@@ -377,9 +377,10 @@ function startTimer() {
 }
 function stopTimer() { clearInterval(histTimer); timer.textContent = ""; }
 
-/* ---------- 历史会话（localStorage） ---------- */
+/* ---------- 历史会话（localStorage + 服务端记忆） ---------- */
 let sessions = JSON.parse(localStorage.getItem("ops_sessions") || "[]");
 let currentMsgs = [];
+let sessionId = null;  // 服务端会话 ID：同一 ID 多轮对话共享上下文记忆
 
 function renderHist(activeId) {
   const list = document.getElementById("histList");
@@ -396,6 +397,7 @@ function loadSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
   currentMsgs = s.msgs;
+  sessionId = s.sid || null;  // 切回历史会话：服务端记忆也跟着切
   box.innerHTML = "";
   s.msgs.forEach(m => {
     if (m.role === "user") addUser(m.text);
@@ -415,7 +417,7 @@ function saveSession(userText, botAnswer, steps) {
   currentMsgs.push({ role: "user", text: userText });
   currentMsgs.push({ role: "bot", answer: botAnswer, steps });
   if (!currentMsgs._saved) {
-    sessions.unshift({ id: Date.now(), title: userText.slice(0, 22), msgs: currentMsgs });
+    sessions.unshift({ id: Date.now(), sid: sessionId, title: userText.slice(0, 22), msgs: currentMsgs });
     sessions = sessions.slice(0, 8);
     currentMsgs._saved = true;
     renderHist(sessions[0].id);
@@ -424,6 +426,7 @@ function saveSession(userText, botAnswer, steps) {
 }
 function newSession() {
   currentMsgs = [];
+  sessionId = null;  // 新会话：换新 ID，旧会话记忆不受影响
   box.innerHTML = "";
   chips.style.display = "flex";
   renderHist(null);
@@ -464,7 +467,7 @@ async function send() {
     const resp = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: q }),
+      body: JSON.stringify({ message: q, session_id: sessionId }),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -516,6 +519,7 @@ async function send() {
             const zbar = stepZone.querySelector(".steps-toggle");
             if (zbar) zbar.textContent = stepsBarText(steps.length, false);
             if (data.answer) { answerText = data.answer; }
+            if (data.session_id) { sessionId = data.session_id; }  // 记住服务端会话 ID
             bubble.querySelector(".typing")?.remove();
             textZone.innerHTML = md(answerText);
             if (data.elapsed) { stats.last = data.elapsed; saveStats(); }
