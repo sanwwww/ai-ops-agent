@@ -1,0 +1,187 @@
+{
+  "version": "1.0",
+  "updated": "2026-09-24",
+  "description": "Ops Agent 故障排查测试集：每条含输入问题、期望调用的工具集合（必须全部命中）、期望结论要点（正则，命中 >=60% 视为结论合格）",
+  "scoring": {
+    "tool_hit": "required_tools 全部出现在实际调用集合中",
+    "conclusion_hit": "expect_keywords 正则逐条匹配最终回答，命中比例 >= 0.6",
+    "pass": "tool_hit == true 且 conclusion_hit >= 0.6"
+  },
+  "cases": [
+    {
+      "id": "dns-01",
+      "category": "DNS",
+      "input": "baidu.com 的 DNS 解析正常吗？帮我查一下",
+      "required_tools": ["dns_lookup"],
+      "expect_keywords": ["DNS", "正常|解析"]
+    },
+    {
+      "id": "dns-02",
+      "category": "DNS",
+      "input": "访问 www.this-domain-definitely-not-exist-9x7q.com 一直打不开，帮我看看哪一层出了问题",
+      "required_tools": ["dns_lookup"],
+      "expect_keywords": ["DNS", "解析失败|无法解析|不存在|失败|找不到"]
+    },
+    {
+      "id": "dns-03",
+      "category": "DNS",
+      "input": "帮我确认 mail.qq.com 当前解析到的 IP 地址",
+      "required_tools": ["dns_lookup"],
+      "expect_keywords": ["IP|解析", "DNS"]
+    },
+    {
+      "id": "dns-04",
+      "category": "DNS",
+      "input": "怀疑 github.com 的 DNS 被污染了，帮我实际检测一下",
+      "required_tools": ["dns_lookup"],
+      "expect_keywords": ["DNS", "正常|解析"]
+    },
+    {
+      "id": "net-01",
+      "category": "连通性",
+      "input": "114.114.114.114 这个 DNS 服务器能 ping 通吗",
+      "required_tools": ["ping_host"],
+      "expect_keywords": ["通|可达|正常|回包"]
+    },
+    {
+      "id": "net-02",
+      "category": "连通性",
+      "input": "example.com 能用浏览器打开但 ping 不通，是不是服务器挂了？",
+      "required_tools": ["ping_host"],
+      "expect_keywords": ["ICMP|CDN", "禁|屏蔽|不代|正常|不代表"]
+    },
+    {
+      "id": "net-03",
+      "category": "连通性",
+      "input": "办公室多台电脑同时 ping 不通网关 192.168.1.1，一般是什么原因？怎么排查？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["网关|IP|防火墙|DHCP", "排查|检查|原因"]
+    },
+    {
+      "id": "port-01",
+      "category": "端口",
+      "input": "检查一下 github.com 的 443 端口开没开",
+      "required_tools": ["check_port"],
+      "expect_keywords": ["443", "可连接|开放|正常|通"]
+    },
+    {
+      "id": "port-02",
+      "category": "端口",
+      "input": "github.com 的 3306 端口能连上吗？",
+      "required_tools": ["check_port"],
+      "expect_keywords": ["3306", "不通|失败|拒绝|无法|未监听|未开放"]
+    },
+    {
+      "id": "port-03",
+      "category": "端口",
+      "input": "baidu.com 的 80 端口现在是什么状态",
+      "required_tools": ["check_port"],
+      "expect_keywords": ["80", "可连接|开放|正常|通"]
+    },
+    {
+      "id": "port-04",
+      "category": "端口",
+      "input": "我的应用在服务器 8000 端口起来了，但外网就是访问不了，该怎么排查？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["端口|监听", "防火墙|安全组|绑定|0\\.0\\.0\\.0|云"]
+    },
+    {
+      "id": "http-01",
+      "category": "HTTP",
+      "input": "检查 https://www.baidu.com 的 HTTP 服务状态",
+      "required_tools": ["http_check"],
+      "expect_keywords": ["200|正常", "HTTP"]
+    },
+    {
+      "id": "http-02",
+      "category": "HTTP",
+      "input": "网站所有页面都报 502，但后端应用进程还活着，最可能是什么原因？应该怎么排查？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["502", "网关|后端|upstream|代理|Nginx"]
+    },
+    {
+      "id": "http-03",
+      "category": "HTTP",
+      "input": "用户反馈我们的接口全是 503，一般是什么原因导致的？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["503", "过载|重启|发布|不可用|限流"]
+    },
+    {
+      "id": "http-04",
+      "category": "HTTP",
+      "input": "用户访问报 404，但接口代码里明明有这个路由，怎么定位？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["404", "路径|路由|rewrite|拼写|前端"]
+    },
+    {
+      "id": "kb-01",
+      "category": "方法论",
+      "input": "Linux 服务器 CPU 突然飙到 100%，完整的排查思路是什么？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["top|进程|线程", "用户态|内核态|GC|死循环|代码"]
+    },
+    {
+      "id": "kb-02",
+      "category": "方法论",
+      "input": "服务器磁盘满了怎么处理？清理的时候有哪些坑要注意？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["df", "du|日志|删除|lsof|轮转"]
+    },
+    {
+      "id": "kb-03",
+      "category": "方法论",
+      "input": "MySQL 远程连接报 Connection refused，怎么分层排查？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["3306|端口", "bind|安全组|监听|服务|防火墙"]
+    },
+    {
+      "id": "kb-04",
+      "category": "方法论",
+      "input": "改了 Nginx 配置之后服务起不来了，一般先检查什么？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["日志|配置", "nginx -t|语法|验证|检查"]
+    },
+    {
+      "id": "kb-05",
+      "category": "方法论",
+      "input": "我是运维新人，遇到故障经常不知道从哪查起，能给我一套通用的排查方法论吗？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["分层|链路|五步|流程", "DNS|确认|验证|对比"]
+    },
+    {
+      "id": "kb-06",
+      "category": "方法论",
+      "input": "服务器 available 内存很低和 buff/cache 高是一回事吗？怎么判断是不是真的缺内存？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["available|可用", "cache|buff|回收"]
+    },
+    {
+      "id": "kb-07",
+      "category": "方法论",
+      "input": "网站打开很慢，但 ping 延迟正常，问题可能出在哪一层？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["应用层|数据库|TTFB|接口", "慢|延迟|定位"]
+    },
+    {
+      "id": "kb-08",
+      "category": "方法论",
+      "input": "Linux 上 SSH 的登录日志在哪个文件？怎么查有没有人暴力破解？",
+      "required_tools": ["search_knowledge"],
+      "expect_keywords": ["/var/log|secure", "登录|认证|失败"]
+    },
+    {
+      "id": "mix-01",
+      "category": "复合排查",
+      "input": "www.qq.com 网站打不开了，帮我完整排查一下",
+      "required_tools": ["dns_lookup", "http_check"],
+      "expect_keywords": ["正常|可达|本地|代理|用户", "DNS|端口|HTTP"]
+    },
+    {
+      "id": "mix-02",
+      "category": "复合排查",
+      "input": "帮我体检一下 www.baidu.com：DNS、端口、HTTP 服务逐项检查一遍",
+      "required_tools": ["dns_lookup", "check_port", "http_check"],
+      "expect_keywords": ["DNS", "端口", "HTTP"]
+    }
+  ]
+}
